@@ -235,7 +235,7 @@ def build_system_prompt(
     return system_prompt
 
 
-def prepare_page_payload(pdf_path: Path, out_dir: Path, p_num: int, dpi: int = 150) -> tuple[int, str, list[str]]:
+def prepare_page_payload(pdf_path: Path, out_dir: Path, p_num: int, dpi: int = 150, force_image_mode: bool = False) -> tuple[int, str, list[str]]:
     """Render one page and extract its embedded raster images."""
     doc = fitz.open(pdf_path)
     try:
@@ -245,31 +245,34 @@ def prepare_page_payload(pdf_path: Path, out_dir: Path, p_num: int, dpi: int = 1
         img_bytes = pix.tobytes("png")
         b64_str = base64.b64encode(img_bytes).decode("utf-8")
 
-        image_list = page.get_image_info(xrefs=True)
-
-        def image_sort_key(img_info: dict) -> tuple[float, float]:
-            bbox = img_info.get("bbox")
-            if not bbox or len(bbox) < 4:
-                return (0.0, 0.0)
-            return (bbox[1], bbox[0])
-
-        image_list.sort(key=image_sort_key)
         extracted_image_filenames: list[str] = []
-        img_idx = 1
-        for img in image_list:
-            xref = img.get("xref")
-            if not xref:
-                continue
 
-            img_pix = fitz.Pixmap(doc, xref)
-            if img_pix.n - img_pix.alpha >= 4:
-                img_pix = fitz.Pixmap(fitz.csRGB, img_pix)
+        # Skip image extraction if force_image_mode is enabled
+        if not force_image_mode:
+            image_list = page.get_image_info(xrefs=True)
 
-            img_filename = f"figure_p{human_p_num}_{img_idx}.png"
-            img_path = out_dir / img_filename
-            img_pix.save(str(img_path))
-            extracted_image_filenames.append(img_filename)
-            img_idx += 1
+            def image_sort_key(img_info: dict) -> tuple[float, float]:
+                bbox = img_info.get("bbox")
+                if not bbox or len(bbox) < 4:
+                    return (0.0, 0.0)
+                return (bbox[1], bbox[0])
+
+            image_list.sort(key=image_sort_key)
+            img_idx = 1
+            for img in image_list:
+                xref = img.get("xref")
+                if not xref:
+                    continue
+
+                img_pix = fitz.Pixmap(doc, xref)
+                if img_pix.n - img_pix.alpha >= 4:
+                    img_pix = fitz.Pixmap(fitz.csRGB, img_pix)
+
+                img_filename = f"figure_p{human_p_num}_{img_idx}.png"
+                img_path = out_dir / img_filename
+                img_pix.save(str(img_path))
+                extracted_image_filenames.append(img_filename)
+                img_idx += 1
 
         return human_p_num, b64_str, extracted_image_filenames
     finally:
@@ -293,6 +296,11 @@ def convert(
     batch_size: int = typer.Option(8, help="Number of pages to process in parallel per batch"),
     start_section: Optional[int] = typer.Option(None, help="Starting section number for LaTeX counters"),
     start_page: Optional[int] = typer.Option(None, help="Starting page number for LaTeX counters"),
+    force_image_mode: bool = typer.Option(
+        False,
+        "--force-image-mode",
+        help="Force treating each page as an image, skipping embedded image extraction (useful for scanned PDFs)",
+    ),
 ):
     """
     Extracts pages from a PDF, converts them to base64 images, and uses an OpenAI-compatible
@@ -397,6 +405,7 @@ def convert(
                 pdf_path,
                 out_dir,
                 p_num,
+                force_image_mode=force_image_mode,
             )
         except Exception as e:
             typer.secho(f"  Warning: Failed to prepare page {human_p_num}: {e}", fg=typer.colors.YELLOW)
