@@ -1,0 +1,12 @@
+[project]
+name = "pdf2latex"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.14"
+dependencies = [
+    "openai>=3.22.1",
+    "pymupdf>=1.28.2",
+    "python-dotenv>=1.2.4",
+    "typer>=0.27.2",
+]
